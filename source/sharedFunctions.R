@@ -736,3 +736,86 @@ glmRankSelect_bivalve<-function(dimSeqOcc,
   
   return(list(CVMSPE,betaMat))
 }
+
+
+
+glmRankSelect_Intercept_bivalve<-function(dimSeqOcc,
+                                          dimSeqPrev,
+                                          obsMod,
+                                          obsCV,
+                                          GriffithOperatorEig,
+                                          XMatMod,
+                                          XMatCV,
+                                          typ,
+                                          tobit=FALSE){
+  posInd<-which(obsMod!=0)
+  posInd_CV<-which(obsCV!=0)
+  dat<-list();dat_CV<-list()
+  dat[[1]]<-ifelse(obsMod==0,0,1)
+  dat[[2]]<-obsMod[posInd]
+  
+  
+  dat_CV[[1]]<-ifelse(obsCV==0,0,1)
+  dat_CV[[2]]<-obsCV[posInd_CV]
+  
+  if(typ=="semi"){
+    if(tobit==FALSE){
+      dat[[2]]<-log(dat[[2]])
+      dat_CV[[2]]<-log(dat_CV[[2]])
+    }
+  }else{
+    dat[[2]]<-dat[[2]]-1
+    dat_CV[[2]]<-dat_CV[[2]]-1
+  }
+  maxdimLengt<-max(length(dimSeqOcc),length(dimSeqPrev))
+  CVMSPE<-matrix(NA,nrow=2,ncol=maxdimLengt)
+  betaMat<-list()
+  betaMat[[1]]<-betaMat[[2]]<-matrix(NA,nrow=4,ncol=maxdimLengt)
+  for(process in 1:2){
+    print(c("Occurrence","Prevalence")[process])
+    if(process==1){ # Occurrence
+      for(jk in 1:length(dimSeqOcc)){
+        if(jk%%10==0){print(jk)}
+        keepM<-c(1:dimSeqOcc[jk])
+        mBase<-(AMat%*%GriffithOperatorEig$vectors[,keepM])
+        mBaseCV<-(AMatCV%*%GriffithOperatorEig$vectors[,keepM])
+        X<-as.matrix(cbind(mBase,1,XMatMod))
+        X_CV<-as.matrix(cbind(mBaseCV,1,XMatCV))
+        
+        lm1<-glm(dat[[process]]~0+X,family = "binomial")  
+        coeffs<-lm1$coefficients
+        betaMat[[process]][,jk]<-coeffs[(ncol(mBase)+1):ncol(X)]
+        foo<-exp(X_CV%*%coeffs)  
+        predCV<-ifelse((foo/(1+foo))>0.5,1,0)
+        CVMSPE[process,jk]<-mean((predCV-dat_CV[[process]])^2)
+      }
+    }else{
+      for(jk in 1:length(dimSeqPrev)){
+        if(jk%%10==0){print(jk)}
+        keepM<-c(1:dimSeqPrev[jk])
+        mBase<-(AMat[posInd,]%*%GriffithOperatorEig$vectors[,keepM])
+        mBaseCV<-(AMatCV[posInd_CV,]%*%GriffithOperatorEig$vectors[,keepM])
+        X<-as.matrix(cbind(mBase,1,XMatMod[posInd,]))
+        X_CV<-as.matrix(cbind(mBaseCV,1,XMatCV[posInd_CV,]))
+        if(typ=="semi"){
+          lm1<-lm(dat[[process]]~0+X) 
+          coeffs<-lm1$coefficients
+          predCV<-as.numeric(X_CV%*%coeffs) #XB
+          betaMat[[process]][,jk]<-coeffs[(ncol(mBase)+1):ncol(X)]
+          if(tobit==TRUE){
+            predCV<-ifelse(predCV<0,0,predCV)
+          }
+          CVMSPE[process,jk]<-mean((exp(predCV)-exp(dat_CV[[process]]))^2)
+        }else{
+          lm1<-glm(dat[[process]]~0+X,family = "poisson")  
+          coeffs<-lm1$coefficients
+          betaMat[[process]][,jk]<-coeffs[(ncol(mBase)+1):ncol(X)]
+          predCV<-exp(X_CV%*%coeffs)  
+          CVMSPE[process,jk]<-mean((predCV-dat_CV[[process]])^2)
+        }
+        
+      }}
+  }
+  
+  return(list(CVMSPE,betaMat))
+}
